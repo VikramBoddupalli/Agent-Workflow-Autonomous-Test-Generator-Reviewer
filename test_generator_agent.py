@@ -1,0 +1,200 @@
+"""
+Autonomous Test Generator Agent
+
+This agent analyzes code and automatically generates comprehensive test cases.
+"""
+
+import ast
+import os
+from typing import List, Dict, Any
+from dataclasses import dataclass
+
+
+@dataclass
+class TestCase:
+    """Represents a generated test case"""
+    test_name: str
+    test_code: str
+    description: str
+    test_type: str  # unit, integration, edge_case
+
+
+class TestGeneratorAgent:
+    """Agent that autonomously generates tests for code"""
+
+    def __init__(self, code_path: str):
+        self.code_path = code_path
+        self.generated_tests: List[TestCase] = []
+
+    def analyze_code(self, file_path: str) -> Dict[str, Any]:
+        """Analyze code structure to understand what needs testing"""
+        with open(file_path, 'r') as f:
+            code = f.read()
+
+        try:
+            tree = ast.parse(code)
+            analysis = {
+                'functions': [],
+                'classes': [],
+                'imports': []
+            }
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    analysis['functions'].append({
+                        'name': node.name,
+                        'args': [arg.arg for arg in node.args.args],
+                        'lineno': node.lineno
+                    })
+                elif isinstance(node, ast.ClassDef):
+                    methods = [n.name for n in node.body if isinstance(n, ast.FunctionDef)]
+                    analysis['classes'].append({
+                        'name': node.name,
+                        'methods': methods,
+                        'lineno': node.lineno
+                    })
+                elif isinstance(node, ast.Import):
+                    analysis['imports'].extend([alias.name for alias in node.names])
+
+            return analysis
+        except SyntaxError:
+            return {'error': 'Failed to parse code'}
+
+    def generate_unit_tests(self, function_info: Dict[str, Any]) -> TestCase:
+        """Generate unit tests for a function"""
+        func_name = function_info['name']
+        args = function_info['args']
+
+        test_code = f"""
+def test_{func_name}_basic():
+    \"\"\"Test basic functionality of {func_name}\"\"\"
+    # TODO: Add test implementation
+    result = {func_name}({', '.join(['None'] * len(args))})
+    assert result is not None
+
+def test_{func_name}_edge_cases():
+    \"\"\"Test edge cases for {func_name}\"\"\"
+    # TODO: Test with empty inputs
+    # TODO: Test with invalid inputs
+    # TODO: Test boundary conditions
+    pass
+
+def test_{func_name}_error_handling():
+    \"\"\"Test error handling in {func_name}\"\"\"
+    # TODO: Test exception handling
+    pass
+"""
+
+        return TestCase(
+            test_name=f"test_{func_name}",
+            test_code=test_code,
+            description=f"Unit tests for {func_name}",
+            test_type="unit"
+        )
+
+    def generate_integration_tests(self, class_info: Dict[str, Any]) -> TestCase:
+        """Generate integration tests for a class"""
+        class_name = class_info['name']
+        methods = class_info['methods']
+
+        test_code = f"""
+class Test{class_name}Integration:
+    \"\"\"Integration tests for {class_name}\"\"\"
+
+    def setup_method(self):
+        \"\"\"Setup test fixtures\"\"\"
+        self.instance = {class_name}()
+
+    def test_{class_name.lower()}_workflow(self):
+        \"\"\"Test complete workflow of {class_name}\"\"\"
+        # TODO: Test method interactions
+        pass
+
+    def test_{class_name.lower()}_state_management(self):
+        \"\"\"Test state management across methods\"\"\"
+        # TODO: Test state changes
+        pass
+"""
+
+        return TestCase(
+            test_name=f"Test{class_name}Integration",
+            test_code=test_code,
+            description=f"Integration tests for {class_name}",
+            test_type="integration"
+        )
+
+    def generate_tests_for_file(self, file_path: str) -> List[TestCase]:
+        """Generate all tests for a given file"""
+        analysis = self.analyze_code(file_path)
+        tests = []
+
+        if 'error' in analysis:
+            print(f"Error analyzing {file_path}: {analysis['error']}")
+            return tests
+
+        for func_info in analysis['functions']:
+            if not func_info['name'].startswith('_'):
+                tests.append(self.generate_unit_tests(func_info))
+
+        for class_info in analysis['classes']:
+            tests.append(self.generate_integration_tests(class_info))
+
+        self.generated_tests.extend(tests)
+        return tests
+
+    def generate_test_file(self, source_file: str, output_path: str):
+        """Generate a complete test file for a source file"""
+        tests = self.generate_tests_for_file(source_file)
+
+        test_content = f"""\"\"\"
+Auto-generated tests for {os.path.basename(source_file)}
+Generated by TestGeneratorAgent
+\"\"\"
+
+import pytest
+from {os.path.splitext(os.path.basename(source_file))[0]} import *
+
+"""
+
+        for test in tests:
+            test_content += test.test_code + "\n\n"
+
+        with open(output_path, 'w') as f:
+            f.write(test_content)
+
+        print(f"Generated {len(tests)} test cases in {output_path}")
+        return output_path
+
+    def run(self):
+        """Main execution method for the agent"""
+        print(f"TestGeneratorAgent analyzing code at: {self.code_path}")
+
+        if os.path.isfile(self.code_path):
+            files = [self.code_path]
+        else:
+            files = [
+                os.path.join(self.code_path, f)
+                for f in os.listdir(self.code_path)
+                if f.endswith('.py') and not f.startswith('test_')
+            ]
+
+        for file_path in files:
+            test_file = f"test_{os.path.basename(file_path)}"
+            output_path = os.path.join(
+                os.path.dirname(file_path) or '.',
+                test_file
+            )
+            self.generate_test_file(file_path, output_path)
+
+        return self.generated_tests
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: python test_generator_agent.py <code_path>")
+        sys.exit(1)
+
+    agent = TestGeneratorAgent(sys.argv[1])
+    agent.run()
